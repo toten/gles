@@ -18,7 +18,7 @@ static GLuint programObject;
 static uint32_t width = 1280;
 static uint32_t height = 720;
 
-EGLBoolean WinCreate(const char *title, int width, int height, 
+EGLBoolean WinCreate(const char *title, int width, int height,
     EGLNativeDisplayType& eglNativeDisplay, EGLNativeWindowType& eglNativeWindow)
 {
     x_display = XOpenDisplay(NULL);
@@ -28,7 +28,7 @@ EGLBoolean WinCreate(const char *title, int width, int height,
     }
 
     Window root = DefaultRootWindow(x_display);
-    
+
     XSetWindowAttributes swa;
     swa.event_mask  =  ExposureMask | PointerMotionMask | KeyPressMask;
     Window win = XCreateWindow(
@@ -245,7 +245,7 @@ void WinLoop(EGLDisplay eglDisplay, EGLSurface eglSurface)
     {
         Draw();
 
-        eglSwapBuffers(eglDisplay, eglSurface);     
+        eglSwapBuffers(eglDisplay, eglSurface);
     }
 }
 
@@ -657,7 +657,7 @@ int main ( int argc, char *argv[] )
     {
         return 1;
     }
-    
+
     WinLoop (eglDisplay, eglSurface);
 
     ShutDown();
