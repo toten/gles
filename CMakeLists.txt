@@ -8,5 +8,5 @@ find_library( EGL_LIBRARY EGL "EGL 1.4 library" )
 find_package( X11 )
  
 SUBDIRS( Chapter_1
-         Chapter_2)	
+         Chapter_Special)	
 		
