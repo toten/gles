@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <string>
+#include <algorithm>
 
 #include <GLES3/gl32.h>
 #include <EGL/egl.h>
@@ -10,6 +12,9 @@
 #include  <X11/Xatom.h>
 #include  <X11/Xutil.h>
 
+#define DEBUG_SHADER_COMPILE 0
+#define SCALE_0_1 1
+
 static Display *x_display = NULL;
 static Atom s_wmDeleteMessage;
 
@@ -17,6 +22,46 @@ static GLuint programObject;
 
 static uint32_t width = 1280;
 static uint32_t height = 720;
+
+enum FragmentColorType
+{
+    ST                  = 0,
+    POSITION            = 1,
+    TANGENT             = 2,
+    BITANGENT           = 3,
+    NORMAL              = 4,
+    UV_COORD            = 5,
+    TANGENT_REMAP       = 6,
+    BITANGENT_REMAP     = 7,
+    UV_COORD_L          = 8,
+    TANGENT_REMAP_L     = 9,
+    BITANGENT_REMAP_L   = 10,
+    TYPE_COUNT          = 11,
+};
+
+const char FragmentColorHotkey[TYPE_COUNT] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a'};
+
+const char* FragmentColorString[TYPE_COUNT] =
+{
+    "st",
+    "position",
+    "unmapped tangent",
+    "unmapped bitangent",
+    "normal",
+    "bicubic interpolated uv",
+    "bicubic mapped tangent",
+    "bicubic mapped bitangent",
+    "linear interpolated uv",
+    "linear mapped tangent",
+    "linear mapped bitangent"
+};
+
+FragmentColorType g_fragColorType = TANGENT_REMAP;
+bool g_fragColorNormalized = true;
+bool g_disturbPosition = true;
+bool g_disturbUV = true;
+bool g_linearContinousInOneDirection = true;
+int g_tessLevel = 8;
 
 EGLBoolean WinCreate(const char *title, int width, int height,
     EGLNativeDisplayType& eglNativeDisplay, EGLNativeWindowType& eglNativeWindow)
@@ -76,12 +121,69 @@ EGLBoolean WinCreate(const char *title, int width, int height,
 
 GLboolean userInterrupt()
 {
+    XEvent xev;
+    KeySym key;
     GLboolean userinterrupt = GL_FALSE;
+    char text;
 
     while ( XPending ( x_display ) )
     {
         XEvent xev;
         XNextEvent( x_display, &xev );
+        if ( xev.type == KeyPress )
+        {
+            if (XLookupString(&xev.xkey,&text,1,&key,0)==1)
+            {
+                auto iter = std::find(&FragmentColorHotkey[0], &FragmentColorHotkey[0] + TYPE_COUNT, key);
+                if (iter != &FragmentColorHotkey[0] + TYPE_COUNT)
+                {
+                    g_fragColorType = static_cast<FragmentColorType>(iter - &FragmentColorHotkey[0]);
+                    printf ("fragment color: %s\n", FragmentColorString[static_cast<int>(g_fragColorType)]);
+                }
+                else if (key == 'm')
+                {
+                    g_fragColorNormalized = !g_fragColorNormalized;
+                    printf ("fragment color normalized: %s\n", g_fragColorNormalized ? "true" : "false");
+                }
+                else if (key == 'p')
+                {
+                    g_disturbPosition = !g_disturbPosition;
+                    printf ("disturb position: %s\n", g_disturbPosition ? "true" : "false");
+                }
+                else if (key == 'u')
+                {
+                    g_disturbUV = !g_disturbUV;
+                    printf ("disturb uv: %s\n", g_disturbPosition ? "true" : "false");
+                }
+                else if (key == 'c')
+                {
+                    g_linearContinousInOneDirection = !g_linearContinousInOneDirection;
+                    printf ("linear uv continous in one direction: %s\n", g_linearContinousInOneDirection ? "true" : "false");
+                }
+                else if (key == '=')
+                {
+                    g_tessLevel++;
+                    g_tessLevel = std::min(g_tessLevel, 64);
+                    printf ("tess level: %d\n", g_tessLevel);
+                }
+                else if (key == '-')
+                {
+                    g_tessLevel--;
+                    g_tessLevel = std::max(1, g_tessLevel);
+                    printf ("tess level: %d\n", g_tessLevel);
+                }
+                else if (key == 'h')
+                {
+                    printf ("hotkeys:\n\t"
+                            "\'0~a\':\tdifferent attribute shown as fragment color;\n\t"
+                            "\'m\':\ttoggle normalized fragment color within [0-1];\n\t"
+                            "\'p\':\ttoggle disturb position;\n\t"
+                            "\'u\':\ttoggle disturb uv;\n\t"
+                            "\'c\':\ttoggle make linear uv continous in one direction;\n\t"
+                            "\'=/-\':\tincrement/decrement tessellation level;\n\t");
+                }
+            }
+        }
         if (xev.type == ClientMessage) {
             if (xev.xclient.data.l[0] == s_wmDeleteMessage) {
                 userinterrupt = GL_TRUE;
@@ -97,7 +199,6 @@ void Draw ()
 {
     float disturb = 0.2f;
     float scale = 2.0f;
-    bool disturby = true;
     int pattern = 1;
     GLfloat vVertices[] = { -0.4f,0.4f,0.0f, -0.2f,0.4f,0.0f, 0.0f,0.4f,0.0f, 0.2f,0.4f,0.0f, 0.4f,0.4f,0.0f,
                             -0.4f,0.2f,0.0f, -0.2f,0.2f,0.0f, 0.0f,0.2f,0.0f, 0.2f,0.2f,0.0f, 0.4f,0.2f,0.0f,
@@ -109,7 +210,7 @@ void Draw ()
     {
         vVertices[i] *= scale;
     }
-    if (disturby)
+    if (g_disturbPosition)
     {
         for (uint32_t i = 0; i < 5; ++i)
         {
@@ -176,23 +277,34 @@ void Draw ()
         0.0f,0.75f, 0.25f,0.75f, 0.5f,0.75f, 0.75f,0.75f, 1.0f,0.75f,
         0.0f,1.0f, 0.25f,1.0f, 0.5f,1.0f, 0.75f,1.0f, 1.0f,1.0f,
     };
-    bool disturb_uv = true;
-    if (disturb_uv)
+    if (g_disturbUV)
     {
-        uv[6 * 2 + 1] -= 0.1f;
-        uv[11 * 2 + 1] -= 0.1f;
-        uv[16 * 2 + 1] -= 0.1f;
+        uv[5 * 2 + 1] -= 0.1f;
+        uv[10 * 2 + 1] -= 0.1f;
+        uv[15 * 2 + 1] -= 0.1f;
 
         uv[7 * 2 + 1] += 0.1f;
         uv[12 * 2 + 1] += 0.1f;
         uv[17 * 2 + 1] += 0.1f;
 
-        uv[8 * 2 + 1] -= 0.1f;
-        uv[13 * 2 + 1] -= 0.1f;
-        uv[18 * 2 + 1] -= 0.1f;
+        uv[9 * 2 + 1] -= 0.1f;
+        uv[14 * 2 + 1] -= 0.1f;
+        uv[19 * 2 + 1] -= 0.1f;
+
+        if (g_linearContinousInOneDirection)
+        {
+            uv[0 * 2 + 1] -= 0.1f;
+            uv[20 * 2 + 1] -= 0.1f;
+
+            uv[2 * 2 + 1] += 0.1f;
+            uv[22 * 2 + 1] += 0.1f;
+
+            uv[4 * 2 + 1] -= 0.1f;
+            uv[24 * 2 + 1] -= 0.1f;
+        }
     }
     bool uv_scale = true;
-    float uv_scale_factor = 4.0f;
+    float uv_scale_factor = 1.0f;
     if (uv_scale)
     {
         for (unsigned int i = 0; i < sizeof(uv)/sizeof(float); ++i)
@@ -205,12 +317,13 @@ void Draw ()
     {
         for (unsigned int c = 0; c < 4; ++c)
         {
-            static unsigned int table[] = {5, 6, 9, 10};
+            //static unsigned int table[] = {5, 6, 9, 10};
+            static unsigned int table[4][4] = { {0, 2, 10, 12}, {2, 4, 12, 14}, {10, 12, 20, 22}, {12, 14, 22, 24} };
 
-            unsigned int vid = 16 * p + table[c];
+            //unsigned int vid = 16 * p + table[c];
             unsigned int id = 4 * p + c;
-            patch_uv_linear[id * 2] = uv[patches[vid] * 2];
-            patch_uv_linear[id * 2 + 1] = uv[patches[vid] * 2 + 1];
+            patch_uv_linear[id * 2] = uv[table[p][c] * 2];
+            patch_uv_linear[id * 2 + 1] = uv[table[p][c] * 2 + 1];
         }
     }
     float patch_uv_bicubic[128];
@@ -225,6 +338,9 @@ void Draw ()
     }
     glUniform2fv(glGetUniformLocation(programObject, "patch_uv_linear"), 16, patch_uv_linear);
     glUniform2fv(glGetUniformLocation(programObject, "patch_uv_bicubic"), 64, patch_uv_bicubic);
+    glUniform1i(glGetUniformLocation(programObject, "fragColorType"), static_cast<int>(g_fragColorType));
+    glUniform1i(glGetUniformLocation(programObject, "fragColorNormalized"), static_cast<int>(g_fragColorNormalized));
+    glUniform1f(glGetUniformLocation(programObject, "level"), g_tessLevel);
 
     glViewport(0, 0, width, height);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -387,40 +503,136 @@ bool Init()
         "}                                                  \n";
 
     char fShaderStr[] =
-        "#version 310 es                                    \n"
-        "precision mediump float;                           \n"
-        "in vec2 st;                                        \n"
-        "in vec3 position;                                  \n"
-        "in vec3 tangent;                                   \n"
-        "in vec3 bitangent;                                 \n"
-        "in vec3 normal;                                    \n"
-        "in vec2 uv_coord;                                  \n"
-        "in vec3 tangent_remap;                             \n"
-        "in vec3 bitangent_remap;                           \n"
-        "in vec2 uv_coord_l;                                \n"
-        "in vec3 tangent_remap_l;                           \n"
-        "in vec3 bitangent_remap_l;                         \n"
-        "out vec4 fragColor;                                \n"
-        "vec3 map(in vec3 v)                                \n"
-        "{                                                  \n"
-        "   return 0.5f*(normalize(v) + vec3(1.0f));        \n"
-        "}                                                  \n"
-        "void main()                                        \n"
-        "{                                                  \n"
-        "   fragColor = vec4(map(tangent), 1.0);            \n"
-        "   fragColor = vec4(map(tangent_remap_l), 1.0);    \n"
-        "   fragColor = vec4(map(tangent_remap), 1.0);      \n"
-        "}                                                  \n";
+        "#version 310 es                                                \n"
+        "precision mediump float;                                       \n"
+        "uniform int fragColorType;                                     \n"
+        "uniform bool fragColorNormalized;                              \n"
+        "in vec2 st;                                                    \n"
+        "in vec3 position;                                              \n"
+        "in vec3 tangent;                                               \n"
+        "in vec3 bitangent;                                             \n"
+        "in vec3 normal;                                                \n"
+        "in vec2 uv_coord;                                              \n"
+        "in vec3 tangent_remap;                                         \n"
+        "in vec3 bitangent_remap;                                       \n"
+        "in vec2 uv_coord_l;                                            \n"
+        "in vec3 tangent_remap_l;                                       \n"
+        "in vec3 bitangent_remap_l;                                     \n"
+        "out vec4 fragColor;                                            \n"
+        "vec3 map(in vec3 v)                                            \n"
+        "{                                                              \n"
+#if SCALE_0_1
+        "   return 0.5f*(normalize(v) + vec3(1.0f));                    \n"
+#endif
+        "   return normalize(v);                                        \n"
+        "}                                                              \n"
+        "void main()                                                    \n"
+        "{                                                              \n"
+        "   switch (fragColorType)                                      \n"
+        "   {                                                           \n"
+        "       case 0:                                                 \n"
+        "           fragColor = vec4(st, 0.0, 1.0);                     \n"
+        "           break;                                              \n"
+        "       case 1:                                                 \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(position), 1.0);           \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(position, 1.0);                \n"
+        "           }                                                   \n"
+        "           break;                                              \n"
+        "       case 2:                                                 \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(tangent), 1.0);            \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(tangent, 1.0);                 \n"
+        "           }                                                   \n"
+        "           break;                                              \n"
+        "       case 3:                                                 \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(bitangent), 1.0);          \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(bitangent, 1.0);               \n"
+        "           }                                                   \n"
+        "           break;                                              \n"
+        "       case 4:                                                 \n"
+        "           fragColor = vec4(normal, 1.0);                      \n"
+        "           break;                                              \n"
+        "       case 5:                                                 \n"
+        "           fragColor = vec4(uv_coord, 0.0, 1.0);               \n"
+        "           break;                                              \n"
+        "       case 6:                                                 \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(tangent_remap), 1.0);      \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(tangent_remap, 1.0);           \n"
+        "           }                                                   \n"
+        "           break;                                              \n"
+        "       case 7:                                                 \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(bitangent_remap), 1.0);    \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(bitangent_remap, 1.0);         \n"
+        "           }                                                   \n"
+        "           break;                                              \n"
+        "       case 8:                                                 \n"
+        "           fragColor = vec4(uv_coord_l, 0.0, 1.0);             \n"
+        "           break;                                              \n"
+        "       case 9:                                                 \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(tangent_remap_l), 1.0);    \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(tangent_remap_l, 1.0);         \n"
+        "           }                                                   \n"
+        "           break;                                              \n"
+        "       case 10:                                                \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(bitangent_remap_l), 1.0);  \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(bitangent_remap_l, 1.0);       \n"
+        "           }                                                   \n"
+        "           break;                                              \n"
+        "       default:                                                \n"
+        "           if (fragColorNormalized)                            \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(map(tangent_remap), 1.0);      \n"
+        "           }                                                   \n"
+        "           else                                                \n"
+        "           {                                                   \n"
+        "               fragColor = vec4(tangent_remap, 1.0);           \n"
+        "           }                                                   \n"
+        "   }                                                           \n"
+        "}                                                              \n";
 
     char tcShaderStr[] =
         "#version 310 es                                                                \n"
         "#extension GL_EXT_tessellation_shader : require                                \n"
         "precision mediump float;                                                       \n"
+        "uniform float level;                                                           \n"
         "layout(vertices = 16) out;                                                     \n"
         "void main()                                                                    \n"
         "{                                                                              \n"
         "   gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;   \n"
-        "   float level = 8.0f;                                                         \n"
         "   gl_TessLevelOuter[0] = level;                                               \n"
         "   gl_TessLevelOuter[1] = level;                                               \n"
         "   gl_TessLevelOuter[2] = level;                                               \n"
@@ -595,9 +807,13 @@ bool Init()
 
     GLuint vertexShader = LoadShader(GL_VERTEX_SHADER, vShaderStr);
     GLuint fragmentShader = LoadShader(GL_FRAGMENT_SHADER, fShaderStr);
+#if DEBUG_SHADER_COMPILE
     printf("compile tcs\n");
+#endif
     GLuint tcShader = LoadShader(GL_TESS_CONTROL_SHADER, tcShaderStr);
+#if DEBUG_SHADER_COMPILE
     printf("compile tes\n");
+#endif
     GLuint teShader = LoadShader(GL_TESS_EVALUATION_SHADER, teShaderStr);
 
     programObject = glCreateProgram();
@@ -607,13 +823,19 @@ bool Init()
     }
 
     glAttachShader(programObject, vertexShader);
+#if DEBUG_SHADER_COMPILE
     printf("attach tcs\n");
+#endif
     glAttachShader(programObject, tcShader);
+#if DEBUG_SHADER_COMPILE
     printf("attach tes\n");
+#endif
     glAttachShader(programObject, teShader);
     glAttachShader(programObject, fragmentShader);
 
+#if DEBUG_SHADER_COMPILE
     printf("link\n");
+#endif
     glLinkProgram(programObject);
 
     GLint linked;
@@ -634,7 +856,7 @@ bool Init()
         return false;
     }
 
-    glClearColor(1.0f, 1.0f, 0.0f, 0.0f);
+    glClearColor(0.5f, 0.5f, 0.5f, 0.0f);
     return true;
 }
 
