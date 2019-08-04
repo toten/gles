@@ -57,11 +57,12 @@ const char* FragmentColorString[TYPE_COUNT] =
 };
 
 FragmentColorType g_fragColorType = TANGENT_REMAP;
-bool g_fragColorNormalized = true;
+bool g_fragColorNormalized = false;
 bool g_disturbPosition = true;
 bool g_disturbUV = true;
 bool g_linearContinousInOneDirection = true;
 int g_tessLevel = 8;
+float g_tangentScale = 0.25f;
 
 EGLBoolean WinCreate(const char *title, int width, int height,
     EGLNativeDisplayType& eglNativeDisplay, EGLNativeWindowType& eglNativeWindow)
@@ -140,7 +141,7 @@ GLboolean userInterrupt()
                     g_fragColorType = static_cast<FragmentColorType>(iter - &FragmentColorHotkey[0]);
                     printf ("fragment color: %s\n", FragmentColorString[static_cast<int>(g_fragColorType)]);
                 }
-                else if (key == 'm')
+                else if (key == 'n')
                 {
                     g_fragColorNormalized = !g_fragColorNormalized;
                     printf ("fragment color normalized: %s\n", g_fragColorNormalized ? "true" : "false");
@@ -172,15 +173,26 @@ GLboolean userInterrupt()
                     g_tessLevel = std::max(1, g_tessLevel);
                     printf ("tess level: %d\n", g_tessLevel);
                 }
+                else if (key == '.')
+                {
+                    g_tangentScale *= 2.0f;
+                    printf ("tangent scale: %g\n", g_tangentScale);
+                }
+                else if (key == ',')
+                {
+                    g_tangentScale *= 0.5f;
+                    printf ("tangent scale: %g\n", g_tangentScale);
+                }
                 else if (key == 'h')
                 {
                     printf ("hotkeys:\n\t"
-                            "\'0~a\':\tdifferent attribute shown as fragment color;\n\t"
-                            "\'m\':\ttoggle normalized fragment color within [0-1];\n\t"
-                            "\'p\':\ttoggle disturb position;\n\t"
-                            "\'u\':\ttoggle disturb uv;\n\t"
-                            "\'c\':\ttoggle make linear uv continous in one direction;\n\t"
-                            "\'=/-\':\tincrement/decrement tessellation level;\n\t");
+                            "\'0~a\':\tdifferent attribute shown as fragment color; (default, bicubic mapped tangent);\n\t"
+                            "\'n\':\ttoggle normalized fragment color within [0-1]; (default, false);\n\t"
+                            "\'p\':\ttoggle disturb position; (default, true);\n\t"
+                            "\'u\':\ttoggle disturb uv; (default, true);\n\t"
+                            "\'c\':\ttoggle make linear uv continous in one direction; (default, true)\n\t"
+                            "\'=/-\':\tincrement/decrement tessellation level; (default, 8);\n\t"
+                            "\'./,\':\tincrement/decrement tangent scale factor; (default, 0.25);\n\t");
                 }
             }
         }
@@ -279,28 +291,20 @@ void Draw ()
     };
     if (g_disturbUV)
     {
-        uv[5 * 2 + 1] -= 0.1f;
-        uv[10 * 2 + 1] -= 0.1f;
-        uv[15 * 2 + 1] -= 0.1f;
-
-        uv[7 * 2 + 1] += 0.1f;
+        uv[11 * 2 + 1] -= 0.1f;
         uv[12 * 2 + 1] += 0.1f;
-        uv[17 * 2 + 1] += 0.1f;
-
-        uv[9 * 2 + 1] -= 0.1f;
-        uv[14 * 2 + 1] -= 0.1f;
-        uv[19 * 2 + 1] -= 0.1f;
+        uv[13 * 2 + 1] -= 0.1f;
 
         if (g_linearContinousInOneDirection)
         {
-            uv[0 * 2 + 1] -= 0.1f;
-            uv[20 * 2 + 1] -= 0.1f;
+            uv[6 * 2 + 1] -= 0.1f;
+            uv[16 * 2 + 1] -= 0.1f;
 
-            uv[2 * 2 + 1] += 0.1f;
-            uv[22 * 2 + 1] += 0.1f;
+            uv[7 * 2 + 1] += 0.1f;
+            uv[17 * 2 + 1] += 0.1f;
 
-            uv[4 * 2 + 1] -= 0.1f;
-            uv[24 * 2 + 1] -= 0.1f;
+            uv[8 * 2 + 1] -= 0.1f;
+            uv[18 * 2 + 1] -= 0.1f;
         }
     }
     bool uv_scale = true;
@@ -317,13 +321,12 @@ void Draw ()
     {
         for (unsigned int c = 0; c < 4; ++c)
         {
-            //static unsigned int table[] = {5, 6, 9, 10};
-            static unsigned int table[4][4] = { {0, 2, 10, 12}, {2, 4, 12, 14}, {10, 12, 20, 22}, {12, 14, 22, 24} };
+            static unsigned int table[] = {5, 6, 9, 10};
 
-            //unsigned int vid = 16 * p + table[c];
+            unsigned int vid = 16 * p + table[c];
             unsigned int id = 4 * p + c;
-            patch_uv_linear[id * 2] = uv[table[p][c] * 2];
-            patch_uv_linear[id * 2 + 1] = uv[table[p][c] * 2 + 1];
+            patch_uv_linear[id * 2] = uv[patches[vid] * 2];
+            patch_uv_linear[id * 2 + 1] = uv[patches[vid] * 2 + 1];
         }
     }
     float patch_uv_bicubic[128];
@@ -341,6 +344,7 @@ void Draw ()
     glUniform1i(glGetUniformLocation(programObject, "fragColorType"), static_cast<int>(g_fragColorType));
     glUniform1i(glGetUniformLocation(programObject, "fragColorNormalized"), static_cast<int>(g_fragColorNormalized));
     glUniform1f(glGetUniformLocation(programObject, "level"), g_tessLevel);
+    glUniform1f(glGetUniformLocation(programObject, "scale"), g_tangentScale);
 
     glViewport(0, 0, width, height);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -503,126 +507,127 @@ bool Init()
         "}                                                  \n";
 
     char fShaderStr[] =
-        "#version 310 es                                                \n"
-        "precision mediump float;                                       \n"
-        "uniform int fragColorType;                                     \n"
-        "uniform bool fragColorNormalized;                              \n"
-        "in vec2 st;                                                    \n"
-        "in vec3 position;                                              \n"
-        "in vec3 tangent;                                               \n"
-        "in vec3 bitangent;                                             \n"
-        "in vec3 normal;                                                \n"
-        "in vec2 uv_coord;                                              \n"
-        "in vec3 tangent_remap;                                         \n"
-        "in vec3 bitangent_remap;                                       \n"
-        "in vec2 uv_coord_l;                                            \n"
-        "in vec3 tangent_remap_l;                                       \n"
-        "in vec3 bitangent_remap_l;                                     \n"
-        "out vec4 fragColor;                                            \n"
-        "vec3 map(in vec3 v)                                            \n"
-        "{                                                              \n"
+        "#version 310 es                                                        \n"
+        "precision mediump float;                                               \n"
+        "uniform int fragColorType;                                             \n"
+        "uniform bool fragColorNormalized;                                      \n"
+        "uniform float scale;                                                   \n"
+        "in vec2 st;                                                            \n"
+        "in vec3 position;                                                      \n"
+        "in vec3 tangent;                                                       \n"
+        "in vec3 bitangent;                                                     \n"
+        "in vec3 normal;                                                        \n"
+        "in vec2 uv_coord;                                                      \n"
+        "in vec3 tangent_remap;                                                 \n"
+        "in vec3 bitangent_remap;                                               \n"
+        "in vec2 uv_coord_l;                                                    \n"
+        "in vec3 tangent_remap_l;                                               \n"
+        "in vec3 bitangent_remap_l;                                             \n"
+        "out vec4 fragColor;                                                    \n"
+        "vec3 map(in vec3 v)                                                    \n"
+        "{                                                                      \n"
 #if SCALE_0_1
-        "   return 0.5f*(normalize(v) + vec3(1.0f));                    \n"
+        "   return 0.5f*(normalize(v) + vec3(1.0f));                            \n"
 #endif
-        "   return normalize(v);                                        \n"
-        "}                                                              \n"
-        "void main()                                                    \n"
-        "{                                                              \n"
-        "   switch (fragColorType)                                      \n"
-        "   {                                                           \n"
-        "       case 0:                                                 \n"
-        "           fragColor = vec4(st, 0.0, 1.0);                     \n"
-        "           break;                                              \n"
-        "       case 1:                                                 \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(position), 1.0);           \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(position, 1.0);                \n"
-        "           }                                                   \n"
-        "           break;                                              \n"
-        "       case 2:                                                 \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(tangent), 1.0);            \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(tangent, 1.0);                 \n"
-        "           }                                                   \n"
-        "           break;                                              \n"
-        "       case 3:                                                 \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(bitangent), 1.0);          \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(bitangent, 1.0);               \n"
-        "           }                                                   \n"
-        "           break;                                              \n"
-        "       case 4:                                                 \n"
-        "           fragColor = vec4(normal, 1.0);                      \n"
-        "           break;                                              \n"
-        "       case 5:                                                 \n"
-        "           fragColor = vec4(uv_coord, 0.0, 1.0);               \n"
-        "           break;                                              \n"
-        "       case 6:                                                 \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(tangent_remap), 1.0);      \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(tangent_remap, 1.0);           \n"
-        "           }                                                   \n"
-        "           break;                                              \n"
-        "       case 7:                                                 \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(bitangent_remap), 1.0);    \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(bitangent_remap, 1.0);         \n"
-        "           }                                                   \n"
-        "           break;                                              \n"
-        "       case 8:                                                 \n"
-        "           fragColor = vec4(uv_coord_l, 0.0, 1.0);             \n"
-        "           break;                                              \n"
-        "       case 9:                                                 \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(tangent_remap_l), 1.0);    \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(tangent_remap_l, 1.0);         \n"
-        "           }                                                   \n"
-        "           break;                                              \n"
-        "       case 10:                                                \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(bitangent_remap_l), 1.0);  \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(bitangent_remap_l, 1.0);       \n"
-        "           }                                                   \n"
-        "           break;                                              \n"
-        "       default:                                                \n"
-        "           if (fragColorNormalized)                            \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(map(tangent_remap), 1.0);      \n"
-        "           }                                                   \n"
-        "           else                                                \n"
-        "           {                                                   \n"
-        "               fragColor = vec4(tangent_remap, 1.0);           \n"
-        "           }                                                   \n"
-        "   }                                                           \n"
-        "}                                                              \n";
+        "   return normalize(v);                                                \n"
+        "}                                                                      \n"
+        "void main()                                                            \n"
+        "{                                                                      \n"
+        "   switch (fragColorType)                                              \n"
+        "   {                                                                   \n"
+        "       case 0:                                                         \n"
+        "           fragColor = vec4(st, 0.0, 1.0);                             \n"
+        "           break;                                                      \n"
+        "       case 1:                                                         \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(position), 1.0);                   \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(position, 1.0);                        \n"
+        "           }                                                           \n"
+        "           break;                                                      \n"
+        "       case 2:                                                         \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(tangent), 1.0);                    \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(tangent, 1.0);                         \n"
+        "           }                                                           \n"
+        "           break;                                                      \n"
+        "       case 3:                                                         \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(bitangent), 1.0);                  \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(bitangent, 1.0);                       \n"
+        "           }                                                           \n"
+        "           break;                                                      \n"
+        "       case 4:                                                         \n"
+        "           fragColor = vec4(normal, 1.0);                              \n"
+        "           break;                                                      \n"
+        "       case 5:                                                         \n"
+        "           fragColor = vec4(uv_coord, 0.0, 1.0);                       \n"
+        "           break;                                                      \n"
+        "       case 6:                                                         \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(tangent_remap), 1.0);              \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(tangent_remap * scale, 1.0);           \n"
+        "           }                                                           \n"
+        "           break;                                                      \n"
+        "       case 7:                                                         \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(bitangent_remap), 1.0);            \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(bitangent_remap * scale, 1.0);         \n"
+        "           }                                                           \n"
+        "           break;                                                      \n"
+        "       case 8:                                                         \n"
+        "           fragColor = vec4(uv_coord_l, 0.0, 1.0);                     \n"
+        "           break;                                                      \n"
+        "       case 9:                                                         \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(tangent_remap_l), 1.0);            \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(tangent_remap_l * scale, 1.0);         \n"
+        "           }                                                           \n"
+        "           break;                                                      \n"
+        "       case 10:                                                        \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(bitangent_remap_l), 1.0);          \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(bitangent_remap_l * scale, 1.0);       \n"
+        "           }                                                           \n"
+        "           break;                                                      \n"
+        "       default:                                                        \n"
+        "           if (fragColorNormalized)                                    \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(map(tangent_remap), 1.0);              \n"
+        "           }                                                           \n"
+        "           else                                                        \n"
+        "           {                                                           \n"
+        "               fragColor = vec4(tangent_remap * scale, 1.0);           \n"
+        "           }                                                           \n"
+        "   }                                                                   \n"
+        "}                                                                      \n";
 
     char tcShaderStr[] =
         "#version 310 es                                                                \n"
