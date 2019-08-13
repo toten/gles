@@ -11,7 +11,7 @@ out vec4 frag_color;
 
 uniform sampler2D normal_map;
 
-const vec3 directional_light = normalize(vec3(1.0f, 1.0f, 0.0f));
+const vec3 directional_light = normalize(vec3(1.0f, 1.0f, 1.0f));
 
 void main()
 {

@@ -132,7 +132,7 @@ bool InitializeEGL(EGLDisplay& eglDisplay, EGLSurface& eglSurface)
     EGLNativeDisplayType eglNativeDisplay;
     EGLNativeWindowType eglNativeWindow;
 
-    if (!WinCreate("first", g_width, g_height, eglNativeDisplay, eglNativeWindow))
+    if (!WinCreate("angular normal map", g_width, g_height, eglNativeDisplay, eglNativeWindow))
     {
         return false;
     }
@@ -317,10 +317,10 @@ bool Init()
         glGenTextures(1, &g_nmap_tex);
         glBindTexture(GL_TEXTURE_2D, g_nmap_tex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 240, 240, 0, GL_RGBA, GL_UNSIGNED_BYTE, nmap_data);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     }
 
     // light
@@ -332,14 +332,6 @@ bool Init()
 
         printf("linking light...\n");
         g_light_prog = SetupProgram(vs, fs);
-
-        glGenTextures(1, &g_light_tex);
-        glBindTexture(GL_TEXTURE_2D, g_light_tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_width, g_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
     }
 
     // scene
@@ -355,10 +347,18 @@ bool Init()
         glGenTextures(1, &g_anmap_tex);
         glBindTexture(GL_TEXTURE_2D, g_anmap_tex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_width, g_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        glGenTextures(1, &g_light_tex);
+        glBindTexture(GL_TEXTURE_2D, g_light_tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_width, g_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
 
     glGenFramebuffers(1, &g_light_fb);
@@ -371,6 +371,11 @@ bool Init()
 
     return true;
 }
+
+#define ANMAP_PASS_SHOW 0
+#if !ANMAP_PASS_SHOW
+#define LIGHT_PASS_SHOW 0
+#endif
 
 void Draw()
 {
@@ -389,7 +394,11 @@ void Draw()
     glViewport(0, 0, g_width, g_height);
 
     // angle normal map pass
+#if ANMAP_PASS_SHOW
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#else
     glBindFramebuffer(GL_FRAMEBUFFER, g_anmap_fb);
+#endif
 
     glUseProgram(g_anmap_prog);
 
@@ -421,8 +430,13 @@ void Draw()
 
     glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
 
+#if !ANMAP_PASS_SHOW
     // light pass
+#if LIGHT_PASS_SHOW
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#else
     glBindFramebuffer(GL_FRAMEBUFFER, g_light_fb);
+#endif
 
     glUseProgram(g_light_prog);
 
@@ -432,6 +446,7 @@ void Draw()
 
     glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
 
+#if !LIGHT_PASS_SHOW
     // scene pass
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -490,6 +505,8 @@ void Draw()
     glUniform1i(glGetUniformLocation(g_scene_prog, "light_map"), 1);
 
     glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
+#endif  // LIGHT_PASS_SHOW
+#endif  // ANMAP_PASS_SHOW
 }
 
 void ShutDown()
