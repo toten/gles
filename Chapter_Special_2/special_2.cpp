@@ -347,8 +347,8 @@ bool Init()
         glGenTextures(1, &g_anmap_tex);
         glBindTexture(GL_TEXTURE_2D, g_anmap_tex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_width, g_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
@@ -376,6 +376,9 @@ bool Init()
 #if !ANMAP_PASS_SHOW
 #define LIGHT_PASS_SHOW 0
 #endif
+
+#define ANGLE_DELTA 1
+float g_angle_delta = 0.0f;
 
 void Draw()
 {
@@ -495,6 +498,12 @@ void Draw()
     glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "model_matrix"), 1, GL_TRUE, model_matrix);
     glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "view_matrix"), 1, GL_TRUE, view_matrix);
     glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "projection_matrix"), 1, GL_TRUE, projection_matrix);
+
+#if ANGLE_DELTA
+    g_angle_delta += 0.005f;
+    g_angle_delta = g_angle_delta > 1.0f ? 0.0f : g_angle_delta;
+#endif
+    glUniform1f(glGetUniformLocation(g_scene_prog, "angle_delta"), g_angle_delta);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_anmap_tex);

@@ -21,11 +21,12 @@ void main()
     mat3 tangent_space = mat3(out_tangent, out_bitangent, normal);
     vec3 normal_mapped = tangent_space * normal_vector;
 
-    float z_dist = (normal_mapped.z + 1.0f) * 0.5f;
-
     const float pi_2 = atan(0.0f, -1.0f) * 2.0f;
-    float angle = atan(normal_mapped.y, normal_mapped.x) / pi_2 + 0.5f;
+    vec2 l = normalize(normal_mapped.xy);
+    float angle = atan(abs(l.y), l.x) / pi_2 + 0.5f;
 
-    frag_color = vec4(angle, z_dist, 0.0f, 1.0f);
+    float dist_y = (normal_mapped.y + 1.0f) * 0.5f;
+    float dist_z = (normal_mapped.z + 1.0f) * 0.5f;
+    frag_color = vec4(angle, dist_y, dist_z, 1.0f);
 }
 )";
