@@ -76,14 +76,42 @@ EGLBoolean WinCreate(const char *title, int width, int height,
     eglNativeWindow = (EGLNativeWindowType) win;    // typedef Window   EGLNativeWindowType; (EGL/eglplatform.h)
 }
 
+bool g_useANMaps = true;
+float g_angle_delta = 0.0f;
+
 GLboolean userInterrupt()
 {
+    XEvent xev;
+    KeySym key;
     GLboolean userinterrupt = GL_FALSE;
+    char text;
 
     while ( XPending ( x_display ) )
     {
         XEvent xev;
         XNextEvent( x_display, &xev );
+        if ( xev.type == KeyPress )
+        {
+            if (XLookupString(&xev.xkey,&text,1,&key,0)==1)
+            {
+                if (key == 'a')
+                {
+                    g_useANMaps = !g_useANMaps;
+                    printf ("normal map type: %s\n", g_useANMaps ? "angular" : "common");
+                }
+                else if (key == 'd')
+                {
+                    g_angle_delta = g_angle_delta > 0.0f ? 0.0f : 0.005f;
+                    printf ("angle delta: %f\n", g_angle_delta);
+                }
+                else if (key == 'h')
+                {
+                    printf ("hotkeys:\n\t"
+                            "\'a\':\ttoggle angular and common normal maps; (default, angular);\n\t"
+                            "\'d\':\tenable delta angle; (default, false);\n\t");
+                }
+            }
+        }
         if (xev.type == ClientMessage) {
             if (xev.xclient.data.l[0] == s_wmDeleteMessage) {
                 userinterrupt = GL_TRUE;
@@ -226,6 +254,8 @@ int main ( int argc, char *argv[] )
 #include "light_fs.h"
 #include "nmaps_light_vs.h"
 #include "nmaps_light_fs.h"
+#include "nmaps_vs.h"
+#include "nmaps_fs.h"
 #include "nmaps.h"
 
 #include "math.h"
@@ -233,6 +263,7 @@ int main ( int argc, char *argv[] )
 static GLuint g_anmap_prog;
 static GLuint g_scene_prog;
 static GLuint g_light_prog;
+static GLuint g_nmap_prog;
 static GLuint g_nmap_tex;
 static GLuint g_anmap_tex;
 static GLuint g_light_tex;
@@ -361,6 +392,17 @@ bool Init()
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
 
+    // common normal map
+    {
+        printf("compiling nmaps vs...\n");
+        GLuint vs = LoadShader(GL_VERTEX_SHADER, normal_maps_vs_source);
+        printf("compiling nmaps fs...\n");
+        GLuint fs = LoadShader(GL_FRAGMENT_SHADER, normal_maps_fs_source);
+
+        printf("linking nmaps...\n");
+        g_nmap_prog = SetupProgram(vs, fs);
+    }
+
     glGenFramebuffers(1, &g_light_fb);
     glBindFramebuffer(GL_FRAMEBUFFER, g_light_fb);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_light_tex, 0);
@@ -377,8 +419,7 @@ bool Init()
 #define LIGHT_PASS_SHOW 0
 #endif
 
-#define ANGLE_DELTA 1
-float g_angle_delta = 0.0f;
+float g_angle = 0.0f;
 
 void Draw()
 {
@@ -396,73 +437,12 @@ void Draw()
 
     glViewport(0, 0, g_width, g_height);
 
-    // angle normal map pass
-#if ANMAP_PASS_SHOW
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#else
-    glBindFramebuffer(GL_FRAMEBUFFER, g_anmap_fb);
-#endif
-
-    glUseProgram(g_anmap_prog);
-
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, vertices + 3);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, vertices + 5);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, vertices + 8);
-
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
-    glEnableVertexAttribArray(2);
-
-    GLuint ib;
-    glGenBuffers(1, &ib);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
     GLfloat model_matrix[] = {
         1.0f, 0.0f, 0.0f, -0.5f,
         0.0f, 1.0f, 0.0f, -0.5f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     };
-
-    glUniformMatrix4fv(glGetUniformLocation(g_anmap_prog, "model_matrix"), 1, GL_TRUE, model_matrix);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_nmap_tex);
-    glUniform1i(glGetUniformLocation(g_anmap_prog, "normal_map"), 0);
-
-    glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
-
-#if !ANMAP_PASS_SHOW
-    // light pass
-#if LIGHT_PASS_SHOW
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#else
-    glBindFramebuffer(GL_FRAMEBUFFER, g_light_fb);
-#endif
-
-    glUseProgram(g_light_prog);
-
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, vertices + 3);
-
-    glEnableVertexAttribArray(0);
-
-    glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
-
-#if !LIGHT_PASS_SHOW
-    // scene pass
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    glClearColor(1.0f, 1.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glUseProgram(g_scene_prog);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, vertices);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, vertices + 3);
-
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
 
     GLfloat view_matrix[] = {
         1.0f, 0.0f, 0.0f, 0.0f,
@@ -495,27 +475,120 @@ void Draw()
     projection_matrix[14] = 1.0f;
     projection_matrix[15] = 0.0f;
 
-    glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "model_matrix"), 1, GL_TRUE, model_matrix);
-    glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "view_matrix"), 1, GL_TRUE, view_matrix);
-    glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "projection_matrix"), 1, GL_TRUE, projection_matrix);
+    if (!g_useANMaps)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-#if ANGLE_DELTA
-    g_angle_delta += 0.005f;
-    g_angle_delta = g_angle_delta > 1.0f ? 0.0f : g_angle_delta;
+        glUseProgram(g_nmap_prog);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, vertices);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, vertices + 3);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, vertices + 5);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, vertices + 8);
+
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glEnableVertexAttribArray(2);
+        glEnableVertexAttribArray(3);
+
+        GLuint ib;
+        glGenBuffers(1, &ib);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+        glUniformMatrix4fv(glGetUniformLocation(g_nmap_prog, "model_matrix"), 1, GL_TRUE, model_matrix);
+        glUniformMatrix4fv(glGetUniformLocation(g_nmap_prog, "view_matrix"), 1, GL_TRUE, view_matrix);
+        glUniformMatrix4fv(glGetUniformLocation(g_nmap_prog, "projection_matrix"), 1, GL_TRUE, projection_matrix);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_nmap_tex);
+        glUniform1i(glGetUniformLocation(g_nmap_prog, "normal_map"), 0);
+
+        glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
+    }
+    else
+    {
+        // angle normal map pass
+#if ANMAP_PASS_SHOW
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#else
+        glBindFramebuffer(GL_FRAMEBUFFER, g_anmap_fb);
 #endif
-    glUniform1f(glGetUniformLocation(g_scene_prog, "angle_delta"), g_angle_delta);
 
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_anmap_tex);
-    glUniform1i(glGetUniformLocation(g_scene_prog, "angular_normal_map"), 0);
+        glUseProgram(g_anmap_prog);
 
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, g_light_tex);
-    glUniform1i(glGetUniformLocation(g_scene_prog, "light_map"), 1);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, vertices + 3);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, vertices + 5);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, vertices + 8);
 
-    glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glEnableVertexAttribArray(2);
+
+        GLuint ib;
+        glGenBuffers(1, &ib);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+        glUniformMatrix4fv(glGetUniformLocation(g_anmap_prog, "model_matrix"), 1, GL_TRUE, model_matrix);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_nmap_tex);
+        glUniform1i(glGetUniformLocation(g_anmap_prog, "normal_map"), 0);
+
+        glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
+
+#if !ANMAP_PASS_SHOW
+        // light pass
+#if LIGHT_PASS_SHOW
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#else
+        glBindFramebuffer(GL_FRAMEBUFFER, g_light_fb);
+#endif
+
+        glUseProgram(g_light_prog);
+
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, vertices + 3);
+
+        glEnableVertexAttribArray(0);
+
+        glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
+
+#if !LIGHT_PASS_SHOW
+        // scene pass
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        glClearColor(1.0f, 1.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glUseProgram(g_scene_prog);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, vertices);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, vertices + 3);
+
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+
+        glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "model_matrix"), 1, GL_TRUE, model_matrix);
+        glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "view_matrix"), 1, GL_TRUE, view_matrix);
+        glUniformMatrix4fv(glGetUniformLocation(g_scene_prog, "projection_matrix"), 1, GL_TRUE, projection_matrix);
+
+        g_angle += g_angle_delta;
+
+        glUniform1f(glGetUniformLocation(g_scene_prog, "angle_delta"), g_angle);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_anmap_tex);
+        glUniform1i(glGetUniformLocation(g_scene_prog, "angular_normal_map"), 0);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, g_light_tex);
+        glUniform1i(glGetUniformLocation(g_scene_prog, "light_map"), 1);
+
+        glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(uint32_t), GL_UNSIGNED_INT, 0);
 #endif  // LIGHT_PASS_SHOW
 #endif  // ANMAP_PASS_SHOW
+    }
 }
 
 void ShutDown()

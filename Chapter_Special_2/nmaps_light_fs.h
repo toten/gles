@@ -25,10 +25,6 @@ void main()
     }
 
     angle += angle_delta;
-    if (angle > 1.0f)
-    {
-        angle -= 1.0f;
-    }
 
     frag_color = vec4(texture(light_map, vec2(angle, dist_z)).rgb, 1.0f);
 }
