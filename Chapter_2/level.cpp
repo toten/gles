@@ -20,6 +20,7 @@ static const uint32_t width = 256;
 static const uint32_t height = 256;
 
 static float g_scale = 0.5f;
+static bool g_enable_mipmap = true;
 static uint32_t g_base_level = 1;
 static uint32_t g_max_level = 2;
 enum TEXTURE_LEVEL_UPDATE
@@ -118,6 +119,11 @@ GLboolean userInterrupt()
                     g_tex_level_update = (TEXTURE_LEVEL_UPDATE)((g_tex_level_update + 1) % INVALID_LEVEL);
                     printf ("%s level is to update\n", g_tex_level_update == BASE_LEVEL ? "base" : "max");
                 }
+                else if (key == 'm')
+                {
+                    g_enable_mipmap = !g_enable_mipmap;
+                    printf ("mipmap is %s\n", g_enable_mipmap ? "enabled" : "disabled");
+                }
                 else if (key >='0' && key <= '9')
                 {
                     if (g_tex_level_update == BASE_LEVEL)
@@ -137,6 +143,7 @@ GLboolean userInterrupt()
                     printf ("hotkeys:\n\t"
                             "\'=/-\':\tincrement/decrement square size; (default, 0.5);\n\t"
                             "\'0-9\':\tchange texture base or max level value; (default, base = 0, max = 1);\n\t"
+                            "\'m\':\tenable/disable mipmap; (default, enable);\n\t"
                             "\'l\':\ttoogle base/max level to update; (default, max level);\n\t");
                 }
             }
@@ -161,6 +168,7 @@ void Draw ()
 
     glUniform1f(glGetUniformLocation(programObject, "scale"), g_scale);
 
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, g_enable_mipmap ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, g_base_level);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, g_max_level);
 
@@ -467,7 +475,6 @@ bool Init()
     glTexImage2D(GL_TEXTURE_2D, 2, GL_RGBA, tex_width_l2, tex_height_l2, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_data_l2);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
